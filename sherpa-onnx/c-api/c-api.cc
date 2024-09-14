@@ -383,7 +383,7 @@ SherpaOnnxFeature SherpaOnnxFeatureExtractorGetFeature(const SherpaOnnxFeatureEx
   SherpaOnnxFeature feature;
   int32_t numberFramesReady = extractor->impl->NumFramesReady();
   std::vector<float> feature_data = extractor->impl->GetFrames(0, numberFramesReady);
-  int32_t target_frames = extractor->duration * extractor->target_fps;
+  int32_t target_frames = std::ceil(extractor->duration * extractor->target_fps);
   size_t current_frames = std::ceil(feature_data.size() / extractor->impl->FeatureDim());
   // SHERPA_ONNX_LOGE("current_frames: %d, target_frames: %d", current_frames, target_frames);
   if (current_frames < target_frames) {
