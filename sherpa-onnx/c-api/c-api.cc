@@ -9,6 +9,7 @@
 #include <string>
 #include <utility>
 #include <vector>
+#include <cmath>
 
 #include "sherpa-onnx/csrc/audio-tagging.h"
 #include "sherpa-onnx/csrc/circular-buffer.h"
@@ -334,6 +335,8 @@ void SherpaOnnxPrint(const SherpaOnnxDisplay *display, int32_t idx,
 //
 struct SherpaOnnxFeatureExtractor {
   std::unique_ptr<sherpa_onnx::FeatureExtractor> impl;
+  int32_t target_fps;
+  float duration;
 };
 
 SherpaOnnxFeatureExtractor *SherpaOnnxCreateFeatureExtractor(
@@ -349,6 +352,7 @@ SherpaOnnxFeatureExtractor *SherpaOnnxCreateFeatureExtractor(
 
   SherpaOnnxFeatureExtractor *extractor = new SherpaOnnxFeatureExtractor;
   extractor->impl = std::make_unique<sherpa_onnx::FeatureExtractor>(feat_config);
+  extractor->target_fps = std::round(1000 / feat_config.frame_shift_ms);
   return extractor;
 }
 
@@ -363,20 +367,34 @@ void SherpaOnnxDestroyFeatureExtractor(SherpaOnnxFeatureExtractor *extractor) {
 }
 
 void SherpaOnnxFeatureExtractorAcceptWaveform(
-    const SherpaOnnxFeatureExtractor *extractor, int32_t sample_rate,
+    SherpaOnnxFeatureExtractor *extractor, int32_t sample_rate,
     const float *samples, int32_t n) {
   extractor->impl->AcceptWaveform(sample_rate, samples, n);
   extractor->impl->InputFinished();
+  int32_t totle_bytes = n * 2 - 44; // 16bit
+  int bytesPerSample = 2; // 16bit
+  int bytesPerFrame = bytesPerSample * 1; // 1 channel
+  int32_t totle_frames = totle_bytes / 2 / extractor->impl->FeatureDim();
+  int32_t totalFrames = totle_bytes / bytesPerFrame;
+  extractor->duration = static_cast<float>(totalFrames) / sample_rate;
 }
 
 SherpaOnnxFeature SherpaOnnxFeatureExtractorGetFeature(const SherpaOnnxFeatureExtractor *extractor) {
   SherpaOnnxFeature feature;
   int32_t numberFramesReady = extractor->impl->NumFramesReady();
   std::vector<float> feature_data = extractor->impl->GetFrames(0, numberFramesReady);
+  int32_t target_frames = extractor->duration * extractor->target_fps;
+  size_t current_frames = std::round(feature_data.size() / extractor->impl->FeatureDim());
+  SHERPA_ONNX_LOGE("current_frames: %d, target_frames: %d", current_frames, target_frames);
+  if (current_frames < target_frames) {
+    feature_data.resize(target_frames, 0);
+  } else if (current_frames > target_frames) {
+    feature_data.resize(target_frames);
+  }
   float* data_copy = new float[feature_data.size()];
   std::copy(feature_data.begin(), feature_data.end(), data_copy);
   feature.data = data_copy;
-  feature.num_frames = feature_data.size();
+  feature.data_size = feature_data.size();
   feature.feature_dim = extractor->impl->FeatureDim();
   return feature;
 }

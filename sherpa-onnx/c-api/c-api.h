@@ -380,7 +380,7 @@ SHERPA_ONNX_API typedef struct SherpaOnnxFeatureExtractor
 
 SHERPA_ONNX_API typedef struct SherpaOnnxFeature {
     const float *data;
-    int32_t num_frames;
+    int32_t data_size;
     int32_t feature_dim;
 } SherpaOnnxFeature;
 
@@ -393,7 +393,7 @@ SHERPA_ONNX_API void SherpaOnnxDestroyFeatureExtractor(
     SherpaOnnxFeatureExtractor *extractor);
 
 SHERPA_ONNX_API void SherpaOnnxFeatureExtractorAcceptWaveform(
-    const SherpaOnnxFeatureExtractor *extractor, int32_t sample_rate,
+    SherpaOnnxFeatureExtractor *extractor, int32_t sample_rate,
     const float *samples, int32_t n);
 
 SHERPA_ONNX_API SherpaOnnxFeature SherpaOnnxFeatureExtractorGetFeature(
