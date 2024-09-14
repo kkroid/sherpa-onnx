@@ -105,6 +105,15 @@ SHERPA_ONNX_API typedef struct SherpaOnnxFeatureConfig {
   /// Feature dimension of the model.
   /// For instance, it should be 80 for models provided by us.
   int32_t feature_dim;
+  // Set internally by some models, e.g., paraformer sets it to false.
+  // This parameter is not exposed to users from the commandline
+  // If true, the feature extractor expects inputs to be normalized to
+  // the range [-1, 1].
+  // If false, we will multiply the inputs by 32768
+  int32_t normalize_samples;
+  int32_t is_mfcc;
+  // for MFCC
+  int32_t num_ceps;
 } SherpaOnnxFeatureConfig;
 
 SHERPA_ONNX_API typedef struct SherpaOnnxOnlineCtcFstDecoderConfig {
@@ -357,6 +366,36 @@ SHERPA_ONNX_API void SherpaOnnxDestroyDisplay(const SherpaOnnxDisplay *display);
 /// Print the result.
 SHERPA_ONNX_API void SherpaOnnxPrint(const SherpaOnnxDisplay *display,
                                      int32_t idx, const char *s);
+
+// ============================================================
+// For Offline Feature Extraction
+// ============================================================
+//
+SHERPA_ONNX_API typedef struct SherpaOnnxFeatureExtractor
+    SherpaOnnxFeatureExtractor;
+
+SHERPA_ONNX_API typedef struct SherpaOnnxFeature {
+    const float *data;
+    int32_t num_frames;
+    int32_t feature_dim;
+} SherpaOnnxFeature;
+
+SHERPA_ONNX_API SherpaOnnxFeatureExtractor *SherpaOnnxCreateFeatureExtractor(
+    const SherpaOnnxFeatureConfig *config);
+
+SHERPA_ONNX_API void SherpaOnnxDestroyFeatureExtractor(
+    SherpaOnnxFeatureExtractor *extractor);
+
+SHERPA_ONNX_API void SherpaOnnxFeatureExtractorAcceptWaveform(
+    const SherpaOnnxFeatureExtractor *extractor, int32_t sample_rate,
+    const float *samples, int32_t n);
+
+SHERPA_ONNX_API SherpaOnnxFeature SherpaOnnxFeatureExtractorGetFeature(
+    const SherpaOnnxFeatureExtractor *extractor);
+
+SHERPA_ONNX_API int32_t SherpaOnnxFeatureExtractorGetNumFrames(
+    const SherpaOnnxFeatureExtractor *extractor);
+
 // ============================================================
 // For offline ASR (i.e., non-streaming ASR)
 // ============================================================

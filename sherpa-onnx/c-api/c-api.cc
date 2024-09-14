@@ -329,6 +329,54 @@ void SherpaOnnxPrint(const SherpaOnnxDisplay *display, int32_t idx,
 }
 
 // ============================================================
+// For Offline Feature Extraction
+// ============================================================
+//
+struct SherpaOnnxFeatureExtractor {
+  std::unique_ptr<sherpa_onnx::FeatureExtractor> impl;
+};
+
+SherpaOnnxFeatureExtractor *SherpaOnnxCreateFeatureExtractor(
+    const SherpaOnnxFeatureConfig *config) {
+  sherpa_onnx::FeatureExtractorConfig feat_config;
+  feat_config.sampling_rate = SHERPA_ONNX_OR(config->sample_rate, 16000);
+  feat_config.feature_dim = SHERPA_ONNX_OR(config->feature_dim, 80);
+  feat_config.is_mfcc = SHERPA_ONNX_OR(config->is_mfcc, 1);
+  feat_config.normalize_samples = SHERPA_ONNX_OR(config->normalize_samples, 1);
+  feat_config.num_ceps = SHERPA_ONNX_OR(config->num_ceps, 13);
+
+  SherpaOnnxFeatureExtractor *extractor = new SherpaOnnxFeatureExtractor;
+  extractor->impl = std::make_unique<sherpa_onnx::FeatureExtractor>(feat_config);
+  return extractor;
+}
+
+void SherpaOnnxDestroyFeatureExtractor(SherpaOnnxFeatureExtractor *extractor) {
+  delete extractor;
+}
+
+void SherpaOnnxFeatureExtractorAcceptWaveform(
+    const SherpaOnnxFeatureExtractor *extractor, int32_t sample_rate,
+    const float *samples, int32_t n) {
+  extractor->impl->AcceptWaveform(sample_rate, samples, n);
+  extractor->impl->InputFinished();
+}
+
+SherpaOnnxFeature SherpaOnnxFeatureExtractorGetFeature(const SherpaOnnxFeatureExtractor *extractor) {
+  SherpaOnnxFeature feature;
+  int32_t numberFramesReady = extractor->impl->NumFramesReady();
+  std::vector feature_data = extractor->impl->GetFrames(0, numberFramesReady);
+  feature.data = feature_data.data();
+  feature.num_frames = feature_data.size();
+  feature.feature_dim = extractor->impl->FeatureDim();
+  return feature;
+}
+
+int32_t SherpaOnnxFeatureExtractorGetNumFrames(
+    const SherpaOnnxFeatureExtractor *extractor) {
+  return extractor->impl->FeatureDim();
+}
+
+// ============================================================
 // For offline ASR (i.e., non-streaming ASR)
 // ============================================================
 //

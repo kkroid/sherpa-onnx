@@ -136,49 +136,94 @@ class FeatureExtractor::Impl {
 
   void InputFinished() const {
     std::lock_guard<std::mutex> lock(mutex_);
-    fbank_->InputFinished();
+    if (fbank_) {
+      fbank_->InputFinished();
+    } else {
+      mfcc_->InputFinished();
+    }
   }
 
   int32_t NumFramesReady() const {
     std::lock_guard<std::mutex> lock(mutex_);
-    return fbank_->NumFramesReady();
+    if (fbank_) {
+      return fbank_->NumFramesReady();
+    } else {
+      return mfcc_->NumFramesReady();
+    }
   }
 
   bool IsLastFrame(int32_t frame) const {
     std::lock_guard<std::mutex> lock(mutex_);
-    return fbank_->IsLastFrame(frame);
+    if (fbank_) {
+      return fbank_->IsLastFrame(frame);
+    } else {
+      return mfcc_->IsLastFrame(frame);
+    }
   }
 
   std::vector<float> GetFrames(int32_t frame_index, int32_t n) {
     std::lock_guard<std::mutex> lock(mutex_);
-    if (frame_index + n > fbank_->NumFramesReady()) {
-      SHERPA_ONNX_LOGE("%d + %d > %d\n", frame_index, n,
-                       fbank_->NumFramesReady());
-      exit(-1);
+    if (fbank_) {
+      if (frame_index + n > fbank_->NumFramesReady()) {
+        SHERPA_ONNX_LOGE("%d + %d > %d\n", frame_index, n,
+                        fbank_->NumFramesReady());
+        exit(-1);
+      }
+
+      int32_t discard_num = frame_index - last_frame_index_;
+      if (discard_num < 0) {
+        SHERPA_ONNX_LOGE("last_frame_index_: %d, frame_index_: %d",
+                        last_frame_index_, frame_index);
+        exit(-1);
+      }
+      fbank_->Pop(discard_num);
+
+      int32_t feature_dim = fbank_->Dim();
+      std::vector<float> features(feature_dim * n);
+
+      float *p = features.data();
+
+      for (int32_t i = 0; i != n; ++i) {
+        const float *f = fbank_->GetFrame(i + frame_index);
+        std::copy(f, f + feature_dim, p);
+        p += feature_dim;
+      }
+
+      last_frame_index_ = frame_index;
+
+      return features;
     }
+    else
+    {
+      if (frame_index + n > mfcc_->NumFramesReady()) {
+        SHERPA_ONNX_LOGE("%d + %d > %d\n", frame_index, n,
+                        mfcc_->NumFramesReady());
+        exit(-1);
+      }
 
-    int32_t discard_num = frame_index - last_frame_index_;
-    if (discard_num < 0) {
-      SHERPA_ONNX_LOGE("last_frame_index_: %d, frame_index_: %d",
-                       last_frame_index_, frame_index);
-      exit(-1);
+      int32_t discard_num = frame_index - last_frame_index_;
+      if (discard_num < 0) {
+        SHERPA_ONNX_LOGE("last_frame_index_: %d, frame_index_: %d",
+                        last_frame_index_, frame_index);
+        exit(-1);
+      }
+      mfcc_->Pop(discard_num);
+
+      int32_t feature_dim = mfcc_->Dim();
+      std::vector<float> features(feature_dim * n);
+
+      float *p = features.data();
+
+      for (int32_t i = 0; i != n; ++i) {
+        const float *f = mfcc_->GetFrame(i + frame_index);
+        std::copy(f, f + feature_dim, p);
+        p += feature_dim;
+      }
+
+      last_frame_index_ = frame_index;
+
+      return features;
     }
-    fbank_->Pop(discard_num);
-
-    int32_t feature_dim = fbank_->Dim();
-    std::vector<float> features(feature_dim * n);
-
-    float *p = features.data();
-
-    for (int32_t i = 0; i != n; ++i) {
-      const float *f = fbank_->GetFrame(i + frame_index);
-      std::copy(f, f + feature_dim, p);
-      p += feature_dim;
-    }
-
-    last_frame_index_ = frame_index;
-
-    return features;
   }
 
   int32_t FeatureDim() const {
