@@ -380,6 +380,8 @@ SHERPA_ONNX_API typedef struct SherpaOnnxFeature {
     int32_t feature_dim;
 } SherpaOnnxFeature;
 
+SHERPA_ONNX_API void SherpaOnnxDestroyFeature(const SherpaOnnxFeature* feature);
+
 SHERPA_ONNX_API SherpaOnnxFeatureExtractor *SherpaOnnxCreateFeatureExtractor(
     const SherpaOnnxFeatureConfig *config);
 

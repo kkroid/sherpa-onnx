@@ -350,6 +350,12 @@ SherpaOnnxFeatureExtractor *SherpaOnnxCreateFeatureExtractor(
   return extractor;
 }
 
+void SherpaOnnxDestroyFeature(const SherpaOnnxFeature* feature) {
+  if (feature) {
+    delete[] feature->data;
+  }
+}
+
 void SherpaOnnxDestroyFeatureExtractor(SherpaOnnxFeatureExtractor *extractor) {
   delete extractor;
 }
@@ -364,8 +370,10 @@ void SherpaOnnxFeatureExtractorAcceptWaveform(
 SherpaOnnxFeature SherpaOnnxFeatureExtractorGetFeature(const SherpaOnnxFeatureExtractor *extractor) {
   SherpaOnnxFeature feature;
   int32_t numberFramesReady = extractor->impl->NumFramesReady();
-  std::vector feature_data = extractor->impl->GetFrames(0, numberFramesReady);
-  feature.data = feature_data.data();
+  std::vector<float> feature_data = extractor->impl->GetFrames(0, numberFramesReady);
+  float* data_copy = new float[feature_data.size()];
+  std::copy(feature_data.begin(), feature_data.end(), data_copy);
+  feature.data = data_copy;
   feature.num_frames = feature_data.size();
   feature.feature_dim = extractor->impl->FeatureDim();
   return feature;
