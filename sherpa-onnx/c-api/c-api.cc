@@ -344,6 +344,8 @@ SherpaOnnxFeatureExtractor *SherpaOnnxCreateFeatureExtractor(
   feat_config.is_mfcc = SHERPA_ONNX_OR(config->is_mfcc, 1);
   feat_config.normalize_samples = SHERPA_ONNX_OR(config->normalize_samples, 1);
   feat_config.num_ceps = SHERPA_ONNX_OR(config->num_ceps, 13);
+  feat_config.frame_shift_ms = SHERPA_ONNX_OR(config->frame_shift_ms, 10);
+  feat_config.frame_length_ms = SHERPA_ONNX_OR(config->frame_length_ms, 25);
 
   SherpaOnnxFeatureExtractor *extractor = new SherpaOnnxFeatureExtractor;
   extractor->impl = std::make_unique<sherpa_onnx::FeatureExtractor>(feat_config);

@@ -114,6 +114,10 @@ SHERPA_ONNX_API typedef struct SherpaOnnxFeatureConfig {
   int32_t is_mfcc;
   // for MFCC
   int32_t num_ceps;
+  // Frame shift, in milliseconds. It determines the time interval between adjacent frames
+  float frame_shift_ms;
+  // Frame length, in milliseconds. It determines the length of each frame.
+  float frame_length_ms;
 } SherpaOnnxFeatureConfig;
 
 SHERPA_ONNX_API typedef struct SherpaOnnxOnlineCtcFstDecoderConfig {
