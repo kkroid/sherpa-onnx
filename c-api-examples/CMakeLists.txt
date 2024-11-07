@@ -52,6 +52,10 @@ add_executable(streaming-zipformer-buffered-tokens-hotwords-c-api
                streaming-zipformer-buffered-tokens-hotwords-c-api.c)
 target_link_libraries(streaming-zipformer-buffered-tokens-hotwords-c-api sherpa-onnx-c-api)
 
+add_executable(audio2expression
+               audio2expression.cpp)
+target_link_libraries(audio2expression sherpa-onnx-c-api)
+
 if(SHERPA_ONNX_HAS_ALSA)
   add_subdirectory(./asr-microphone-example)
 elseif((UNIX AND NOT APPLE) OR LINUX)
