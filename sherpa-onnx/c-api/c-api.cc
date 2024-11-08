@@ -3,6 +3,7 @@
 // Copyright (c)  2023  Xiaomi Corporation
 
 #include "sherpa-onnx/c-api/c-api.h"
+#include "onnxruntime_cxx_api.h"
 
 #include <algorithm>
 #include <memory>
@@ -10,6 +11,7 @@
 #include <utility>
 #include <vector>
 #include <cmath>
+#include <chrono>
 
 #include "sherpa-onnx/csrc/audio-tagging.h"
 #include "sherpa-onnx/csrc/circular-buffer.h"
@@ -405,6 +407,114 @@ int32_t SherpaOnnxFeatureExtractorGetNumFrames(
   return extractor->impl->FeatureDim();
 }
 
+// ============================================================
+// For PCM to Expression inference
+// ============================================================
+//
+struct SherpaOnnxOrtSession {
+  Ort::Session session;
+};
+
+SherpaOnnxOrtSession *SherpaOnnxCreateOrtSession(const char *model_path) {
+  // auto start_time = std::chrono::high_resolution_clock::now();
+  Ort::Env env(ORT_LOGGING_LEVEL_WARNING, "ONNXRuntime");
+  Ort::SessionOptions session_options;
+  session_options.SetIntraOpNumThreads(4);
+  session_options.SetGraphOptimizationLevel(GraphOptimizationLevel::ORT_ENABLE_EXTENDED);
+  
+  size_t len = strlen(model_path) + 1; // 包括终止符 '\0'
+  std::vector<wchar_t> arr(len);
+  mbstowcs(arr.data(), model_path, len);
+  const ORTCHAR_T* path = arr.data();
+  Ort::Session session(env, path, session_options);
+
+  SherpaOnnxOrtSession *ort_session = new SherpaOnnxOrtSession{std::move(session)};
+  // auto end_time = std::chrono::high_resolution_clock::now();
+  // auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time);
+  // SHERPA_ONNX_LOGE("SherpaOnnxCreateOrtSession duration: %d ms", duration.count());
+  return ort_session;
+}
+
+SherpaOnnxExpression* SherpaOnnxPCM2Expression(SherpaOnnxOrtSession *session, const float *samples, int32_t n, int32_t sample_rate) {
+  // auto start_time = std::chrono::high_resolution_clock::now();
+  SherpaOnnxFeatureConfig config;
+  config.sample_rate = sample_rate;
+  config.feature_dim = 80;
+  config.normalize_samples = 1;
+  config.is_mfcc = 1;
+  config.num_ceps = 272;
+  config.frame_shift_ms = 33.33333333333333;
+  config.frame_length_ms = 33.33333333333333;
+  SherpaOnnxFeatureExtractor *extractor = SherpaOnnxCreateFeatureExtractor(&config);
+  SherpaOnnxFeatureExtractorAcceptWaveform(extractor, sample_rate, samples, n);
+  SherpaOnnxFeature feature = SherpaOnnxFeatureExtractorGetFeature(extractor);
+  int64_t time_steps = feature.data_size / feature.feature_dim;
+  int64_t feature_size = feature.feature_dim;
+
+  // 确定的输入和输出名称
+  const char* input_name = "input";
+  const char* length_name = "length";
+  const char* mask_name = "mask";
+  const char* output_name = "output";
+  
+  std::vector<float> input_tensor_values(1 * time_steps * feature_size, 0.0f); // 根据实际输入形状初始化
+  std::vector<int64_t> input_tensor_shape = {1, time_steps, feature_size};
+  std::vector<int64_t> length_tensor_values = {time_steps};
+  std::vector<int64_t> length_tensor_shape = {1};
+
+  std::vector<float> mask_tensor_values(1 * time_steps, 1.0f); // 全1的mask
+  std::vector<int64_t> mask_tensor_shape = {1, time_steps};
+
+  // 创建 ONNX Runtime 张量
+  Ort::AllocatorWithDefaultOptions allocator;
+  const Ort::MemoryInfo memory_info = Ort::MemoryInfo::CreateCpu(OrtArenaAllocator, OrtMemTypeDefault);
+  Ort::Value input_tensor = Ort::Value::CreateTensor<float>(memory_info, input_tensor_values.data(), input_tensor_values.size(), input_tensor_shape.data(), input_tensor_shape.size());
+  Ort::Value length_tensor = Ort::Value::CreateTensor<int64_t>(memory_info, length_tensor_values.data(), length_tensor_values.size(), length_tensor_shape.data(), length_tensor_shape.size());
+  Ort::Value mask_tensor = Ort::Value::CreateTensor<float>(memory_info, mask_tensor_values.data(), mask_tensor_values.size(), mask_tensor_shape.data(), mask_tensor_shape.size());
+
+  std::vector<Ort::Value> input_tensors;
+  input_tensors.push_back(std::move(input_tensor));
+  input_tensors.push_back(std::move(length_tensor));
+  input_tensors.push_back(std::move(mask_tensor));
+  // 运行推理
+  const char* input_names[] = {input_name, length_name, mask_name};
+  const char* output_names[] = {output_name};
+  std::vector<Ort::Value> output_tensors = session->session.Run(Ort::RunOptions{nullptr}, input_names, input_tensors.data(), 3, output_names, 1);
+  // 处理输出
+  float* output_arr = output_tensors.front().GetTensorMutableData<float>();
+  int32_t output_size = output_tensors.front().GetTensorTypeAndShapeInfo().GetElementCount();
+  // 将输出限制在 -1 到 1 之间
+  for (int32_t i = 0; i < output_size; i++) {
+    output_arr[i] = std::max(-1.0f, std::min(1.0f, output_arr[i]));
+  }
+  SherpaOnnxExpression *expression = new SherpaOnnxExpression;
+  expression->data = output_arr;
+  expression->data_size = output_size;
+  expression->expression_dim = feature.feature_dim;
+  SherpaOnnxDestroyFeature(&feature);
+  SherpaOnnxDestroyFeatureExtractor(extractor);
+  // auto end_time = std::chrono::high_resolution_clock::now();
+  // auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time);
+  // SHERPA_ONNX_LOGE("Inference duration: %d ms", duration.count());
+  return expression;
+}
+
+void SherpaOnnxDestroyOrtSession(SherpaOnnxOrtSession *session) {
+  if (session) {
+    if (session->session)
+    {
+      delete session->session;
+    }
+    delete session;
+    session = nullptr;
+  }
+}
+
+void SherpaOnnxDestroyExpression(const SherpaOnnxExpression* expression) {
+  if (expression) {
+    delete[] expression->data;
+  }
+}
 // ============================================================
 // For offline ASR (i.e., non-streaming ASR)
 // ============================================================

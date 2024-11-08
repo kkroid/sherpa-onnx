@@ -403,6 +403,26 @@ SHERPA_ONNX_API int32_t SherpaOnnxFeatureExtractorGetNumFrames(
     const SherpaOnnxFeatureExtractor *extractor);
 
 // ============================================================
+// For wav to Expression inference
+// ============================================================
+//
+SHERPA_ONNX_API typedef struct SherpaOnnxOrtSession SherpaOnnxOrtSession;
+
+SHERPA_ONNX_API typedef struct SherpaOnnxExpression {
+    const float *data;
+    int32_t data_size;
+    int32_t expression_dim;
+} SherpaOnnxExpression;
+
+SHERPA_ONNX_API SherpaOnnxOrtSession *SherpaOnnxCreateOrtSession(const char *model_path);
+
+SHERPA_ONNX_API void SherpaOnnxDestroyOrtSession(SherpaOnnxOrtSession *session);
+
+SHERPA_ONNX_API void SherpaOnnxDestroyExpression(const SherpaOnnxExpression* expression);
+
+SHERPA_ONNX_API SherpaOnnxExpression* SherpaOnnxPCM2Expression(SherpaOnnxOrtSession *session, const float *samples, int32_t n, int32_t sample_rate);
+
+// ============================================================
 // For offline ASR (i.e., non-streaming ASR)
 // ============================================================
 
