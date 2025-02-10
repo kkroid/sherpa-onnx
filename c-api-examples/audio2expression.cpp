@@ -6,6 +6,7 @@
 #include <algorithm>
 #include <chrono>
 #include <fstream>
+#include <iomanip>
 
 #define SHERPA_ONNX_LOGE(...)                                            \
   do {                                                                   \
@@ -20,7 +21,8 @@ int main() {
     std::string audio_path = "E:\\github\\sherpa-onnx\\build\\aaa.wav";
     SHERPA_ONNX_LOGE("audio_path=%s", audio_path.c_str());
 
-    SherpaOnnxOrtSession *session = SherpaOnnxCreateOrtSession("E:\\github\\sherpa-onnx\\build\\A2E_LSTM_10311254_HS156_NL4.onnx");
+    std::string model_path = "E:\\github\\sherpa-onnx\\build\\A2E_LSTM_11141453_HS156_NL4.onnx";
+    SherpaOnnxOrtSession *session = SherpaOnnxCreateOrtSession(model_path.c_str());
     if (session == nullptr) {
         SHERPA_ONNX_LOGE("Failed to create ort session");
         return -1;
@@ -50,7 +52,8 @@ int main() {
     SHERPA_ONNX_LOGE("expression created, data_size=%d, expression_dim=%d", expression->data_size, expression->expression_dim);
     std::ofstream output_file("output.csv");
     for (int32_t i = 0; i < expression->data_size; i++) {
-        output_file << expression->data[i];
+        // 写入文件，保留8位小数
+        output_file << std::fixed << std::setprecision(8) << expression->data[i];
         if (i < expression->data_size - 1) output_file << ",";
         if ((i + 1) % expression->expression_dim == 0) output_file << std::endl;
     }

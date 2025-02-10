@@ -419,18 +419,18 @@ SherpaOnnxOrtSession *SherpaOnnxCreateOrtSession(const char *model_path) {
   // auto start_time = std::chrono::high_resolution_clock::now();
   Ort::Env env(ORT_LOGGING_LEVEL_WARNING, "ONNXRuntime");
   Ort::SessionOptions session_options;
-  session_options.SetIntraOpNumThreads(4);
+  session_options.SetIntraOpNumThreads(1);
   session_options.SetGraphOptimizationLevel(GraphOptimizationLevel::ORT_ENABLE_EXTENDED);
   
 #if defined(_WIN32) || defined(_WIN64)
   size_t len = strlen(model_path) + 1; // 包括终止符 '\0'
   std::vector<wchar_t> arr(len);
   mbstowcs(arr.data(), model_path, len);
+  std::unique_ptr<Ort::Session> session(new Ort::Session(env, arr.data(), session_options));
 #else
   const ORTCHAR_T* path = model_path;
-#endif
-  // Ort::Session session(env, path, session_options);
   std::unique_ptr<Ort::Session> session(new Ort::Session(env, path, session_options));
+#endif
 
   SherpaOnnxOrtSession *ort_session = new SherpaOnnxOrtSession{std::move(session)};
   // auto end_time = std::chrono::high_resolution_clock::now();
@@ -456,65 +456,32 @@ SherpaOnnxExpression* SherpaOnnxPCM2Expression(SherpaOnnxOrtSession *session, co
   int64_t feature_size = feature.feature_dim;
 
   // 确定的输入和输出名称
-  const char* input_name = "input";
-  const char* length_name = "length";
-  const char* mask_name = "mask";// 确定的输入和输出名称
-  const char* h0_name = "h0";
-  const char* c0_name = "c0";
-  const char* output_name = "output";
-  // 创建输入数据
-  const int hidden_size = 156; // LSTM 隐藏状态维度
-  const int num_layers = 4; // LSTM 层数
-  
-  std::vector<float> input_tensor_values(1 * time_steps * feature_size, 0.0f); // 根据实际输入形状初始化
-  std::vector<int64_t> input_tensor_shape = {1, time_steps, feature_size};
-  std::vector<int64_t> length_tensor_values = {time_steps};
-  std::vector<int64_t> length_tensor_shape = {1};
-  std::vector<float> h0_tensor_values(num_layers * 2 * hidden_size, 0.0f); // 初始化 h0
-  std::vector<int64_t> h0_tensor_shape = {num_layers * 2, 1, hidden_size};
-  std::vector<float> c0_tensor_values(num_layers * 2 * hidden_size, 0.0f); // 初始化 c0
-  std::vector<int64_t> c0_tensor_shape = {num_layers * 2, 1, hidden_size};
-
-
-  std::vector<float> mask_tensor_values(1 * time_steps, 1.0f); // 全1的mask
-  std::vector<int64_t> mask_tensor_shape = {1, time_steps};
-
-  // 创建 ONNX Runtime 张量
-  Ort::AllocatorWithDefaultOptions allocator;
-  const Ort::MemoryInfo memory_info = Ort::MemoryInfo::CreateCpu(OrtArenaAllocator, OrtMemTypeDefault);
-  Ort::Value input_tensor = Ort::Value::CreateTensor<float>(memory_info, input_tensor_values.data(), input_tensor_values.size(), input_tensor_shape.data(), input_tensor_shape.size());
-  Ort::Value length_tensor = Ort::Value::CreateTensor<int64_t>(memory_info, length_tensor_values.data(), length_tensor_values.size(), length_tensor_shape.data(), length_tensor_shape.size());
-  Ort::Value mask_tensor = Ort::Value::CreateTensor<float>(memory_info, mask_tensor_values.data(), mask_tensor_values.size(), mask_tensor_shape.data(), mask_tensor_shape.size());
-  Ort::Value h0_tensor = Ort::Value::CreateTensor<float>(memory_info, h0_tensor_values.data(), h0_tensor_values.size(), h0_tensor_shape.data(), h0_tensor_shape.size());
-  Ort::Value c0_tensor = Ort::Value::CreateTensor<float>(memory_info, c0_tensor_values.data(), c0_tensor_values.size(), c0_tensor_shape.data(), c0_tensor_shape.size());
-
+  std::vector<float> input_data(feature.data, feature.data + feature.data_size);
+  // 输入 lengths
+  std::vector<int64_t> lengths_data = {time_steps};
+  // 创建输入 Tensor
+  Ort::MemoryInfo memory_info = Ort::MemoryInfo::CreateCpu(OrtAllocatorType::OrtArenaAllocator, OrtMemType::OrtMemTypeDefault);
   std::vector<Ort::Value> input_tensors;
-  input_tensors.push_back(std::move(input_tensor));
-  input_tensors.push_back(std::move(length_tensor));
-  input_tensors.push_back(std::move(mask_tensor));
-  input_tensors.push_back(std::move(h0_tensor));
-  input_tensors.push_back(std::move(c0_tensor));
-
+  input_tensors.push_back(Ort::Value::CreateTensor<float>(memory_info, input_data.data(), input_data.size(), std::array<int64_t, 3>{1, time_steps, feature.feature_dim}.data(), 3));
+  input_tensors.push_back(Ort::Value::CreateTensor<int64_t>(memory_info, lengths_data.data(), lengths_data.size(), std::array<int64_t, 1>{1}.data(), 1));
   // 运行推理
-  const char* input_names[] = {input_name, length_name, mask_name, h0_name, c0_name};
-  const char* output_names[] = {output_name};
-  std::vector<Ort::Value> output_tensors = session->session->Run(Ort::RunOptions{nullptr}, input_names, input_tensors.data(), input_tensors.size(), output_names, 1);
-  // 处理输出
-  float* output_arr = output_tensors.front().GetTensorMutableData<float>();
+  const char* input_names[] = {"input", "lengths"};
+  const char* output_names[] = {"output"};
+  std::vector<Ort::Value> output_tensors = session->session->Run(
+    Ort::RunOptions{nullptr},
+    input_names, input_tensors.data(), 2,
+    output_names, 1
+  );
+  float* output_data = output_tensors[0].GetTensorMutableData<float>();
+  const auto output_shape = output_tensors[0].GetTensorTypeAndShapeInfo().GetShape();
   int32_t output_size = output_tensors.front().GetTensorTypeAndShapeInfo().GetElementCount();
-  // 将输出限制在 -1 到 1 之间
-  for (int32_t i = 0; i < output_size; i++) {
-    output_arr[i] = std::max(-1.0f, std::min(1.0f, output_arr[i]));
-  }
+  
   SherpaOnnxExpression *expression = new SherpaOnnxExpression;
-  expression->data = output_arr;
+  expression->data = output_data;
   expression->data_size = output_size;
   expression->expression_dim = feature.feature_dim;
   SherpaOnnxDestroyFeature(&feature);
   SherpaOnnxDestroyFeatureExtractor(extractor);
-  // auto end_time = std::chrono::high_resolution_clock::now();
-  // auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time);
-  // SHERPA_ONNX_LOGE("Inference duration: %d ms", duration.count());
   return expression;
 }
 
@@ -526,7 +493,10 @@ void SherpaOnnxDestroyOrtSession(SherpaOnnxOrtSession *session) {
 
 void SherpaOnnxDestroyExpression(const SherpaOnnxExpression* expression) {
   if (expression) {
-    delete[] expression->data;
+    if (expression->data) {
+      delete[] expression->data;
+    }
+    expression = nullptr;
   }
 }
 // ============================================================
